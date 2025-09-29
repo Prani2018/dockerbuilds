@@ -4,9 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'simple-web-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
-        DOCKER_REGISTRY = 'docker.io'
-        DOCKER_CREDENTIALS_ID = 'dockerhub-credentials'
-        DOCKERHUB_USERNAME = 'your-dockerhub-username' // Change this
+        DOCKERHUB_USERNAME = 'your-dockerhub-username' // Change this to your Docker Hub username
         WAR_URL = 'https://github.com/Prani2018/dockerbuilds/raw/main/simple-web-app.war'
     }
     
@@ -32,28 +30,31 @@ EXPOSE 8080
 # Start Tomcat
 CMD ["catalina.sh", "run"]
 '''
+                    echo "Dockerfile created successfully"
+                    sh "cat Dockerfile"
                 }
             }
         }
         
-        stage('Download WAR File') {
+        stage('Verify Docker') {
             steps {
-                script {
-                    sh """
-                        echo 'Downloading WAR file...'
-                        curl -L -o simple-web-app.war ${WAR_URL}
-                        ls -lh simple-web-app.war
-                    """
-                }
+                sh '''
+                    echo "Checking Docker installation..."
+                    docker --version
+                    docker info
+                '''
             }
         }
         
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "Building Docker image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                    docker.build("${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}")
-                    docker.build("${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest")
+                    echo "Building Docker image: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    sh """
+                        docker build -t ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker tag ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest
+                        docker images | grep ${DOCKER_IMAGE}
+                    """
                 }
             }
         }
@@ -64,25 +65,42 @@ CMD ["catalina.sh", "run"]
                     echo "Testing Docker image..."
                     sh """
                         # Run container in background
-                        docker run -d --name test-container -p 8081:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+                        docker run -d --name test-container-${BUILD_NUMBER} -p 8081:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
                         
                         # Wait for Tomcat to start
                         echo 'Waiting for Tomcat to start...'
                         sleep 30
                         
                         # Check if container is running
-                        docker ps | grep test-container
+                        docker ps | grep test-container-${BUILD_NUMBER}
                         
                         # Check Tomcat logs
-                        docker logs test-container
+                        echo 'Container logs:'
+                        docker logs test-container-${BUILD_NUMBER}
                         
                         # Test HTTP endpoint
-                        curl -f http://localhost:8081 || echo 'Application not ready yet'
+                        echo 'Testing HTTP endpoint...'
+                        curl -f http://localhost:8081 || echo 'Application not ready yet, but container is running'
                         
                         # Stop and remove test container
-                        docker stop test-container
-                        docker rm test-container
+                        docker stop test-container-${BUILD_NUMBER}
+                        docker rm test-container-${BUILD_NUMBER}
                     """
+                }
+            }
+        }
+        
+        stage('Login to Docker Hub') {
+            steps {
+                script {
+                    echo "Logging into Docker Hub..."
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
+                                                      usernameVariable: 'DOCKER_USER', 
+                                                      passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        '''
+                    }
                 }
             }
         }
@@ -90,12 +108,18 @@ CMD ["catalina.sh", "run"]
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    echo "Pushing to Docker Hub..."
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", "${DOCKER_CREDENTIALS_ID}") {
-                        docker.image("${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}").push()
-                        docker.image("${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest").push()
-                    }
+                    echo "Pushing Docker images to Docker Hub..."
+                    sh """
+                        docker push ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+                        docker push ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest
+                    """
                 }
+            }
+        }
+        
+        stage('Logout from Docker Hub') {
+            steps {
+                sh 'docker logout'
             }
         }
         
@@ -105,6 +129,7 @@ CMD ["catalina.sh", "run"]
                     sh """
                         docker rmi ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG} || true
                         docker rmi ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest || true
+                        echo 'Local images cleaned up'
                     """
                 }
             }
@@ -114,19 +139,26 @@ CMD ["catalina.sh", "run"]
     post {
         success {
             echo "✅ SUCCESS: Docker image built and pushed successfully!"
+            echo "=========================================="
             echo "Image: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
-            echo "To run: docker run -p 8080:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "Latest: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "=========================================="
+            echo "To pull and run:"
+            echo "docker pull ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "docker run -d -p 8080:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "=========================================="
         }
         failure {
             echo "❌ FAILURE: Pipeline failed. Check logs for details."
         }
         always {
-            // Clean up any remaining test containers
-            sh '''
-                docker stop test-container 2>/dev/null || true
-                docker rm test-container 2>/dev/null || true
-            '''
-            cleanWs()
+            script {
+                // Clean up any remaining test containers
+                sh """
+                    docker stop test-container-${BUILD_NUMBER} 2>/dev/null || true
+                    docker rm test-container-${BUILD_NUMBER} 2>/dev/null || true
+                """
+            }
         }
     }
 }
