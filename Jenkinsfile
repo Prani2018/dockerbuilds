@@ -5,7 +5,7 @@ pipeline {
         DOCKER_IMAGE = 'simple-web-app'
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         DOCKERHUB_USERNAME = 'gcpa2279' // Change this to your Docker Hub username
-        WAR_URL = 'https://github.com/Prani2018/dockerbuilds/raw/main/simple-web-app.war'
+        WAR_URL = 'https://github.com/Prani2018/devopsdev/raw/refs/heads/main/simple-web-app.war'
     }
     
     stages {
