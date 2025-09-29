@@ -22,7 +22,7 @@ pipeline {
 RUN rm -rf /usr/local/tomcat/webapps/ROOT
 
 # Download and deploy WAR file
-ADD https://github.com/Prani2018/dockerbuilds/raw/main/simple-web-app.war /usr/local/tomcat/webapps/ROOT.war
+ADD https://github.com/Prani2018/devopsdev/raw/refs/heads/main/simple-web-app.war /usr/local/tomcat/webapps/ROOT.war
 
 # Expose Tomcat port
 EXPOSE 8080
