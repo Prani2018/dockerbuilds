@@ -1,3 +1,4 @@
+#This file will create application build image with tomcat and pushes to tomcat.
 pipeline {
     agent any
     
