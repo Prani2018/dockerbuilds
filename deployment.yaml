@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: my-app # Ensure this matches your secret
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simple-web-app
+  template:
+    metadata:
+      labels:
+        app: simple-web-app
+      annotations:
+        # ARGO CD IMAGE UPDATER ANNOTATION
+        # Use the correct image path for the updater to monitor.
+        argocd-image-updater.argoproj.io/image-list: my-image=gcpa2279/simple-web-app
+    spec:
+      containers:
+      - name: simple-web-app
+        # CONTAINER IMAGE
+        # Use the correct image and tag from Docker Hub.
+        image: gcpa2279/simple-web-app:latest
+      imagePullSecrets:
+      - name: private-docker-registry
