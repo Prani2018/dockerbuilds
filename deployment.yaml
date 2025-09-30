@@ -24,3 +24,18 @@ spec:
         image: gcpa2279/simple-web-app:latest
       imagePullSecrets:
       - name: private-docker-registry
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-web-app-service # Choose a descriptive name for your service
+  namespace: my-app             # Ensure this matches the namespace in your Deployment
+spec:
+  type: LoadBalancer           # This will provision an AWS ELB (or equivalent) for external access
+  ports:
+  - port: 80                   # The port your service will listen on
+    targetPort: 8080           # The port your container is exposing (based on your Deployment's `containerPort`)
+    protocol: TCP
+    name: http                 # A descriptive name for the port
+  selector:
+    app: simple-web-app  
