@@ -1,0 +1,221 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_IMAGE = 'simple-web-app'
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        DOCKERHUB_USERNAME = 'your-dockerhub-username' // Change this to your Docker Hub username
+        // Option 1: Use GitHub raw URL
+        WAR_URL = 'https://raw.githubusercontent.com/Prani2018/dockerbuilds/main/simple-web-app.war'
+        // Option 2: Use local path (uncomment and set path if using local file)
+        // LOCAL_WAR_PATH = '/path/to/simple-web-app.war'
+    }
+    
+    stages {
+        stage('Prepare Workspace') {
+            steps {
+                script {
+                    // Clean workspace
+                    cleanWs()
+                    
+                    // Create Dockerfile
+                    writeFile file: 'Dockerfile', text: '''FROM tomcat:9-jdk17
+
+# Remove default ROOT application
+RUN rm -rf /usr/local/tomcat/webapps/ROOT
+
+# Copy WAR file from build context
+COPY simple-web-app.war /usr/local/tomcat/webapps/ROOT.war
+
+# Expose Tomcat port
+EXPOSE 8080
+
+# Start Tomcat
+CMD ["catalina.sh", "run"]
+'''
+                    echo "Dockerfile created successfully"
+                    sh "cat Dockerfile"
+                }
+            }
+        }
+        
+        stage('Verify Docker') {
+            steps {
+                sh '''
+                    echo "Checking Docker installation..."
+                    docker --version
+                    docker info
+                '''
+            }
+        }
+        
+        stage('Get WAR File') {
+            steps {
+                script {
+                    // Check if using local file or downloading
+                    if (env.LOCAL_WAR_PATH) {
+                        echo "Using local WAR file: ${LOCAL_WAR_PATH}"
+                        sh """
+                            cp ${LOCAL_WAR_PATH} simple-web-app.war
+                            ls -lh simple-web-app.war
+                            file simple-web-app.war
+                        """
+                    } else {
+                        echo "Downloading WAR file from: ${WAR_URL}"
+                        sh """
+                            # Download WAR file
+                            curl -L -f -o simple-web-app.war '${WAR_URL}' || \
+                            wget -O simple-web-app.war '${WAR_URL}' || \
+                            (echo "ERROR: Failed to download WAR file" && exit 1)
+                            
+                            # Verify file exists and is not empty
+                            if [ ! -f simple-web-app.war ]; then
+                                echo "ERROR: WAR file not found after download!"
+                                exit 1
+                            fi
+                            
+                            # Check file size
+                            FILE_SIZE=\$(stat -c%s simple-web-app.war 2>/dev/null || stat -f%z simple-web-app.war 2>/dev/null)
+                            echo "Downloaded WAR file size: \$FILE_SIZE bytes"
+                            
+                            if [ "\$FILE_SIZE" -lt 1000 ]; then
+                                echo "ERROR: WAR file is too small or empty!"
+                                echo "Content of downloaded file:"
+                                head -20 simple-web-app.war
+                                exit 1
+                            fi
+                            
+                            # Verify it's a valid ZIP/WAR file
+                            echo "File type check:"
+                            file simple-web-app.war
+                            
+                            # List file details
+                            ls -lh simple-web-app.war
+                            
+                            # Try to list contents of WAR file
+                            echo "WAR file contents:"
+                            unzip -l simple-web-app.war | head -20 || jar tf simple-web-app.war | head -20
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo "Building Docker image: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    sh """
+                        docker build -t ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker tag ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest
+                        docker images | grep ${DOCKER_IMAGE}
+                    """
+                }
+            }
+        }
+        
+        stage('Test Docker Image') {
+            steps {
+                script {
+                    echo "Testing Docker image..."
+                    sh """
+                        # Run container in background
+                        docker run -d --name test-container-${BUILD_NUMBER} -p 8081:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+                        
+                        # Wait for Tomcat to start
+                        echo 'Waiting for Tomcat to start...'
+                        sleep 45
+                        
+                        # Check if container is running
+                        echo 'Container status:'
+                        docker ps | grep test-container-${BUILD_NUMBER}
+                        
+                        # Check Tomcat logs
+                        echo 'Container logs:'
+                        docker logs test-container-${BUILD_NUMBER}
+                        
+                        # Test HTTP endpoint
+                        echo 'Testing HTTP endpoint...'
+                        curl -v http://localhost:8081 || echo 'HTTP test completed'
+                        
+                        # Stop and remove test container
+                        docker stop test-container-${BUILD_NUMBER}
+                        docker rm test-container-${BUILD_NUMBER}
+                    """
+                }
+            }
+        }
+        
+        stage('Login to Docker Hub') {
+            steps {
+                script {
+                    echo "Logging into Docker Hub..."
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
+                                                      usernameVariable: 'DOCKER_USER', 
+                                                      passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    echo "Pushing Docker images to Docker Hub..."
+                    sh """
+                        docker push ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
+                        docker push ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Logout from Docker Hub') {
+            steps {
+                sh 'docker logout'
+            }
+        }
+        
+        stage('Cleanup Local Images') {
+            steps {
+                script {
+                    sh """
+                        docker rmi ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG} || true
+                        docker rmi ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest || true
+                        echo 'Local images cleaned up'
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo "✅ SUCCESS: Docker image built and pushed successfully!"
+            echo "=========================================="
+            echo "Image: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}"
+            echo "Latest: ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "=========================================="
+            echo "To pull and run:"
+            echo "docker pull ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "docker run -d -p 8080:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:latest"
+            echo "Access at: http://localhost:8080"
+            echo "=========================================="
+        }
+        failure {
+            echo "❌ FAILURE: Pipeline failed. Check logs for details."
+        }
+        always {
+            script {
+                // Clean up any remaining test containers
+                sh """
+                    docker stop test-container-${BUILD_NUMBER} 2>/dev/null || true
+                    docker rm test-container-${BUILD_NUMBER} 2>/dev/null || true
+                """
+            }
+        }
+    }
+}
