@@ -44,7 +44,7 @@ USER jboss
 EXPOSE 8080
 
 # Download and deploy WAR file
-ADD https://github.com/Prani2018/devopsdev/raw/refs/heads/main/simple-web-app.war/opt/jboss/wildfly/standalone/deployments/ROOT.war
+ADD https://github.com/Prani2018/devopsdev/raw/refs/heads/main/simple-web-app.war /opt/jboss/wildfly/standalone/deployments/ROOT.war
 
 # Set the default command to run on boot
 # This will boot WildFly in standalone mode and bind to all interfaces
