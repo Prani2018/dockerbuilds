@@ -16,7 +16,7 @@ pipeline {
                     cleanWs()
                     
                     // Create Dockerfile
-                    writeFile file: 'Dockerfile', text: '''FROM jboss/base-jdk:17
+                    writeFile file: 'Dockerfile', text: '''FROM jboss/base-jdk:11
 
 # Set the WILDFLY_VERSION env variable
 ENV WILDFLY_VERSION 24.0.0.Final
