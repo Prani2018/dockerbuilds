@@ -87,15 +87,15 @@ CMD ["/opt/jboss/wildfly/bin/standalone.sh", "-b", "0.0.0.0"]
                         # Run container in background
                         docker run -d --name test-container-${BUILD_NUMBER} -p 8081:8080 ${DOCKERHUB_USERNAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
                         
-                        # Wait for Tomcat to start
-                        echo 'Waiting for Tomcat to start...'
+                        # Wait for jboss to start
+                        echo 'Waiting for jboss to start...'
                         sleep 30
                         
                         # Check if container is running
                         docker ps | grep test-container-${BUILD_NUMBER}
                         
-                        # Check Tomcat logs
-                        echo 'Container logs:'
+                        # Check jboss logs
+                        echo 'jboss logs:'
                         docker logs test-container-${BUILD_NUMBER}
                         
                         # Test HTTP endpoint
